@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BrakeSense — Panel en vivo</title>
+<style>
+  :root {
+    --coral: #FF644E;
+    --coral-dark: #E14A35;
+    --ink: #14171A;
+    --panel: #1D2126;
+    --panel-line: #2A2F35;
+    --text: #F2F3F4;
+    --muted: #8A9099;
+    --ok: #35C48D;
+    --warn: #F5A623;
+    --danger: #FF4D4D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+  }
+  .num { font-family: "SFMono-Regular", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 20px; border-bottom: 1px solid var(--panel-line);
+    position: sticky; top: 0; background: var(--ink); z-index: 10;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-mark {
+    width: 30px; height: 30px; border-radius: 8px; background: var(--coral);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: white;
+  }
+  .brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); transition: background .2s; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+
+  #btnConnect {
+    background: var(--coral); color: white; border: none;
+    padding: 9px 18px; border-radius: 8px; font-size: 14px; font-weight: 600;
+    cursor: pointer;
+  }
+  #btnConnect:active { background: var(--coral-dark); }
+  #btnConnect:disabled { background: var(--panel-line); color: var(--muted); cursor: default; }
+
+  main { max-width: 720px; margin: 0 auto; padding: 20px 20px 60px; }
+
+  #alertBanner {
+    display: none; padding: 14px 16px; border-radius: 10px; margin-bottom: 18px;
+    font-weight: 600; font-size: 14px; align-items: center; gap: 10px;
+  }
+  #alertBanner.warn { display: flex; background: rgba(245,166,35,0.15); border: 1px solid var(--warn); color: var(--warn); }
+  #alertBanner.danger { display: flex; background: rgba(255,77,77,0.15); border: 1px solid var(--danger); color: var(--danger); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .6; } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-line);
+    border-radius: 14px; padding: 20px; margin-bottom: 16px;
+  }
+  .panel-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .panel-title { font-size: 14px; font-weight: 600; color: var(--text); }
+  .panel-sub { font-size: 12px; color: var(--muted); }
+
+  .big-value { font-size: 40px; font-weight: 600; line-height: 1; }
+  .big-value .unit { font-size: 16px; color: var(--muted); margin-left: 4px; font-weight: 400; }
+
+  .bar-track {
+    height: 10px; background: #12151A; border-radius: 6px; overflow: hidden;
+    margin: 14px 0 6px; position: relative;
+  }
+  .bar-fill { height: 100%; background: var(--ok); border-radius: 6px; width: 0%; transition: width .3s, background .3s; }
+  .bar-marks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+
+  .piezo-log { font-size: 12px; color: var(--muted); }
+  .piezo-log ul { list-style: none; margin: 8px 0 0; padding: 0; max-height: 110px; overflow-y: auto; }
+  .piezo-log li { padding: 4px 0; border-bottom: 1px solid var(--panel-line); display: flex; justify-content: space-between; }
+  .piezo-stats { display: flex; gap: 24px; margin-top: 6px; }
+  .piezo-stats div { font-size: 12px; color: var(--muted); }
+  .piezo-stats span { display: block; font-size: 20px; color: var(--text); margin-top: 2px; }
+
+  .hint {
+    font-size: 12px; color: var(--muted); text-align: center; margin-top: 24px; line-height: 1.5;
+  }
+  .hint a { color: var(--coral); }
+
+  .placeholder { color: var(--muted); font-size: 13px; text-align: center; padding: 24px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">B</div>
+    <div class="brand-name">BrakeSense</div>
+  </div>
+  <div style="display:flex; align-items:center; gap:16px;">
+    <div class="status-pill"><span class="dot" id="dot"></span><span id="statusText">Desconectado</span></div>
+    <button id="btnConnect">Conectar</button>
+  </div>
+</header>
+
+<main>
+  <div id="alertBanner"></div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Desgaste de pastilla</div>
+      <div class="panel-sub" id="desgasteRaw">RAW —</div>
+    </div>
+    <div class="bar-track">
+      <div class="bar-fill" id="desgasteBar"></div>
+    </div>
+    <div class="bar-marks"><span>Nuevo</span><span>Aviso</span><span>Peligro</span></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Temperatura</div>
+      <div class="panel-sub" id="tempRaw">RAW —</div>
+    </div>
+    <div class="big-value"><span id="tempValue">—</span><span class="unit">°C</span></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Impactos (piezo)</div>
+    </div>
+    <div class="piezo-stats">
+      <div>Último<span class="num" id="piezoLast">—</span></div>
+      <div>Máximo<span class="num" id="piezoMax">—</span></div>
+      <div>Total<span class="num" id="piezoCount">0</span></div>
+    </div>
+    <div class="piezo-log"><ul id="piezoList"></ul></div>
+  </section>
+
+  <p class="hint">
+    Requiere Bluetooth y Web Bluetooth API.<br>
+    En iPhone, Safari no es compatible — usa <a href="https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055" target="_blank">Bluefy</a>.
+  </p>
+</main>
+
+<script>
+const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const CHAR_TX_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+// --- Umbrales de desgaste (RAW), deben coincidir con los del firmware ---
+const DESGASTE_RAW_NUEVO = 2080;
+const DESGASTE_UMBRAL_AVISO = 1500;
+const DESGASTE_UMBRAL_PELIGRO = 500;
+
+let device, characteristic;
+let audioCtx = null;
+let ultimaAlerta = null;
+let rxBuffer = "";
+
+let piezoMax = 0;
+let piezoCount = 0;
+
+const el = (id) => document.getElementById(id);
+const btnConnect = el("btnConnect");
+
+btnConnect.addEventListener("click", async () => {
+  // El AudioContext debe crearse dentro de un gesto del usuario (requisito de iOS)
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  try {
+    await connect();
+  } catch (err) {
+    console.error(err);
+    setStatus(false, "Error al conectar");
+  }
+});
+
+async function connect() {
+  setStatus(false, "Buscando...");
+  device = await navigator.bluetooth.requestDevice({
+    filters: [{ name: "BrakeSense-Proto" }],
+    optionalServices: [SERVICE_UUID]
+  });
+  device.addEventListener("gattserverdisconnected", onDisconnected);
+
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService(SERVICE_UUID);
+  characteristic = await service.getCharacteristic(CHAR_TX_UUID);
+  await characteristic.startNotifications();
+  characteristic.addEventListener("characteristicvaluechanged", onData);
+
+  setStatus(true, "Conectado — " + (device.name || "BrakeSense"));
+  btnConnect.textContent = "Desconectar";
+  btnConnect.onclick = () => device.gatt.disconnect();
+}
+
+function onDisconnected() {
+  setStatus(false, "Desconectado");
+  btnConnect.textContent = "Conectar";
+  btnConnect.onclick = null;
+  btnConnect.addEventListener("click", async () => { await connect(); });
+}
+
+function setStatus(on, text) {
+  el("dot").classList.toggle("on", on);
+  el("statusText").textContent = text;
+}
+
+function onData(event) {
+  const chunk = new TextDecoder().decode(event.target.value);
+  rxBuffer += chunk;
+  let idx;
+  while ((idx = rxBuffer.indexOf("\n")) >= 0) {
+    const line = rxBuffer.slice(0, idx).trim();
+    rxBuffer = rxBuffer.slice(idx + 1);
+    if (line) procesarLinea(line);
+  }
+}
+
+function procesarLinea(line) {
+  if (line.startsWith("PIEZO:")) {
+    const valor = parseInt(line.split(":")[1], 10);
+    procesarPiezo(valor);
+  } else if (line.startsWith("DESGASTE:")) {
+    const raw = parseInt(line.split(":")[1], 10);
+    procesarDesgaste(raw);
+  } else if (line.startsWith("TEMP:")) {
+    const partes = line.replace("TEMP:", "").trim().split(" ");
+    const raw = partes[0];
+    const celsius = parseFloat(partes[1]);
+    procesarTemperatura(raw, celsius);
+  } else if (line.startsWith("ALERTA:")) {
+    dispararAlerta(line.split(":")[1]);
+  }
+}
+
+function procesarPiezo(valor) {
+  piezoCount++;
+  piezoMax = Math.max(piezoMax, valor);
+  el("piezoLast").textContent = valor;
+  el("piezoMax").textContent = piezoMax;
+  el("piezoCount").textContent = piezoCount;
+
+  const list = el("piezoList");
+  const li = document.createElement("li");
+  const t = new Date().toLocaleTimeString();
+  li.innerHTML = `<span>${t}</span><span class="num">${valor}</span>`;
+  list.prepend(li);
+  while (list.children.length > 80) list.removeChild(list.lastChild);
+}
+
+function procesarDesgaste(raw) {
+  el("desgasteRaw").textContent = "RAW " + raw;
+  // Más RAW = menos desgaste (el nodo se acerca a 3.3V con el sensor nuevo)
+  const pct = Math.max(0, Math.min(100,
+    ((DESGASTE_RAW_NUEVO - raw) / (DESGASTE_RAW_NUEVO - DESGASTE_UMBRAL_PELIGRO)) * 100
+  ));
+  const bar = el("desgasteBar");
+  bar.style.width = pct + "%";
+  if (raw < DESGASTE_UMBRAL_PELIGRO) bar.style.background = "var(--danger)";
+  else if (raw < DESGASTE_UMBRAL_AVISO) bar.style.background = "var(--warn)";
+  else bar.style.background = "var(--ok)";
+}
+
+function procesarTemperatura(raw, celsius) {
+  el("tempRaw").textContent = "RAW " + raw;
+  el("tempValue").textContent = isFinite(celsius) ? celsius.toFixed(1) : "—";
+}
+
+function dispararAlerta(tipo) {
+  const banner = el("alertBanner");
+  if (tipo === ultimaAlerta) return; // evita repetir sonido en cada ciclo
+  ultimaAlerta = tipo;
+
+  if (tipo === "AVISO") {
+    banner.className = "warn";
+    banner.textContent = "⚠ Aviso: desgaste de pastilla elevado";
+    pitido(880, 2);
+    vibrar([120]);
+  } else if (tipo === "PELIGRO") {
+    banner.className = "danger";
+    banner.textContent = "⛔ Peligro: revisar pastilla de freno";
+    pitido(1200, 3);
+    vibrar([200, 100, 200]);
+  } else if (tipo === "TEMP_ALTA") {
+    banner.className = "danger";
+    banner.textContent = "🌡 Temperatura elevada detectada";
+    pitido(1200, 3);
+    vibrar([200, 100, 200]);
+  } else {
+    banner.className = "";
+    banner.style.display = "none";
+  }
+}
+
+function pitido(freq, veces) {
+  if (!audioCtx) return;
+  for (let i = 0; i < veces; i++) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = freq;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    const start = audioCtx.currentTime + i * 0.3;
+    gain.gain.setValueAtTime(0.15, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
+    osc.start(start);
+    osc.stop(start + 0.2);
+  }
+}
+
+function vibrar(pattern) {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+</script>
+</body>
+</html>

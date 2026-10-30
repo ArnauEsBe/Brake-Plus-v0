@@ -76,6 +76,11 @@
   .big-value { font-size: 40px; font-weight: 600; line-height: 1; }
   .big-value .unit { font-size: 16px; color: var(--muted); margin-left: 4px; font-weight: 400; }
 
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .grid2 .panel { margin-bottom: 0; }
+  .big-value.mid { font-size: 34px; }
+  @media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+
   .bar-track {
     height: 10px; background: #12151A; border-radius: 6px; overflow: hidden;
     margin: 14px 0 6px; position: relative;
@@ -133,6 +138,32 @@
     <div class="big-value"><span id="tempValue">—</span><span class="unit">°C</span></div>
   </section>
 
+  <div class="grid2">
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Fuerza normal</div>
+        <div class="panel-sub num" id="fnSub">— N</div>
+      </div>
+      <div class="big-value mid num"><span id="fnValue">—</span><span class="unit">g</span></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <div class="panel-title">Fuerza tangencial</div>
+        <div class="panel-sub num" id="ftSub">— N</div>
+      </div>
+      <div class="big-value mid num"><span id="ftValue">—</span><span class="unit">g</span></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div class="panel-title">Coeficiente de fricción (µ)</div>
+      <div class="panel-sub">F tangencial / F normal</div>
+    </div>
+    <div class="big-value num"><span id="muValue">—</span></div>
+    <div class="panel-sub" style="margin-top:10px;">Se calcula cuando la fuerza normal supera <span id="muMinTxt"></span> g</div>
+  </section>
+
   <section class="panel">
     <div class="panel-head">
       <div class="panel-title">Impactos (piezo)</div>
@@ -167,6 +198,11 @@ let rxBuffer = "";
 
 let piezoMax = 0;
 let piezoCount = 0;
+
+// --- Fuerzas (llegan ya en gramos, calibradas en el firmware) ---
+const MU_FUERZA_NORMAL_MINIMA = 50; // g; por debajo, el cociente no es fiable (se divide por casi 0)
+let fuerzaNormal = null;
+let fuerzaTangencial = null;
 
 const el = (id) => document.getElementById(id);
 const btnConnect = el("btnConnect");
@@ -238,6 +274,10 @@ function procesarLinea(line) {
     const raw = partes[0];
     const celsius = parseFloat(partes[1]);
     procesarTemperatura(raw, celsius);
+  } else if (line.startsWith("FUERZA_NORMAL:")) {
+    procesarFuerza("normal", parseFloat(line.split(":")[1]));
+  } else if (line.startsWith("FUERZA_TANGENCIAL:")) {
+    procesarFuerza("tangencial", parseFloat(line.split(":")[1]));
   } else if (line.startsWith("ALERTA:")) {
     dispararAlerta(line.split(":")[1]);
   }
@@ -270,6 +310,31 @@ function procesarDesgaste(raw) {
   else if (raw < DESGASTE_UMBRAL_AVISO) bar.style.background = "var(--warn)";
   else bar.style.background = "var(--ok)";
 }
+
+function procesarFuerza(tipo, gramos) {
+  if (!isFinite(gramos)) return;
+  const newtons = (gramos * 0.00980665).toFixed(2) + " N";
+  if (tipo === "normal") {
+    fuerzaNormal = gramos;
+    el("fnValue").textContent = gramos.toFixed(1);
+    el("fnSub").textContent = newtons;
+  } else {
+    fuerzaTangencial = gramos;
+    el("ftValue").textContent = gramos.toFixed(1);
+    el("ftSub").textContent = newtons;
+  }
+  actualizarMu();
+}
+
+function actualizarMu() {
+  const out = el("muValue");
+  if (fuerzaNormal === null || fuerzaTangencial === null || fuerzaNormal < MU_FUERZA_NORMAL_MINIMA) {
+    out.textContent = "—";
+    return;
+  }
+  out.textContent = (fuerzaTangencial / fuerzaNormal).toFixed(2);
+}
+el("muMinTxt").textContent = MU_FUERZA_NORMAL_MINIMA;
 
 function procesarTemperatura(raw, celsius) {
   el("tempRaw").textContent = "RAW " + raw;
